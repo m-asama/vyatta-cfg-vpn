@@ -1,0 +1,188 @@
+#!/usr/bin/perl
+#
+# Module: vyos-xfrmwatchd
+#
+# **** License ****
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License version 2 as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# Copyright (C) 2014 VyOS Development Group
+#
+# **** End License ****
+
+use lib "/opt/vyatta/share/perl5";
+use strict;
+use warnings;
+use POSIX;
+use Fcntl;
+use Sys::Syslog;
+use Vyatta::Config;
+use Vyatta::Interface;
+use Data::Dumper;
+
+use constant
+{
+    # Program settings
+    PROGRAM_NAME => "vyos-xfrmwatchd",
+    PROGRAM_VERSION => "1.0",
+    PID_FILE => "/var/run/vyos-xfrmwatchd.pid",
+
+    # Program exit codes
+    SUCCESS => 0,
+    ERROR => 1,
+
+    # Subroutine error codes
+    SUB_ERROR => 0,
+    SUB_SUCCESS => 1,
+
+    # Fcntl file lock/unlock constants
+    SET_EXCLUSIVE_LOCK => 2,
+    UNLOCK => 8
+};
+
+my $debug = 0;
+
+sub daemonize {
+     syslog("info", "%s", "Starting in daemon mode");
+
+     my $pid = fork();
+     if (!defined($pid)) {
+          # Fork failed
+          die "Could not spawn child process: $!, exiting";
+     } elsif ($pid > 0) {
+         # Child has been spawned succefully,
+         # parent should terminate now
+         exit(SUCCESS);
+     }
+     chdir("/");
+     umask(0);
+     setsid();
+
+     # Close standard i/o stream descriptors
+     open STDIN, "/dev/null" or die "Can't read /dev/null: $!";
+     open STDOUT, ">>/dev/null" or die "Can't write to /dev/null: $!";
+     open STDERR, ">>/dev/null" or die "Can't write to /dev/null: $!";
+}
+
+sub writePid {
+    my ($pid, $fh) = @_;
+
+    unless (flock($fh, SET_EXCLUSIVE_LOCK)) {
+       syslog("err", "%s", "Could not lock PID file: $!");
+       exit(ERROR);
+    }
+
+    print($fh $pid);
+}
+
+sub releasePid {
+    my $fh = shift;
+    flock($fh, UNLOCK);
+    close($fh);
+    unlink(PID_FILE);
+}
+
+daemonize();
+my $pidFile = PID_FILE;
+unless (open PID_HANDLE, ">$pidFile") {
+    syslog("err", "%s", "Could not create PID file: $!");
+    exit(1);
+}
+writePid($$, \*PID_HANDLE);
+
+my $config = new Vyatta::Config();
+
+my $xfrm_monitor = "ip -oneline xfrm monitor policy";
+unless (open(HANDLE, "$xfrm_monitor|")) {
+    syslog("err", "%s", qq{Could not start IP monitor: $!\n});
+    exit(1);
+}
+
+sub terminate {
+        my $error = shift;
+        syslog("notice", "%s", PROGRAM_NAME." is terminating");
+        releasePid(\*PID_HANDLE);
+        exit(0);
+}
+
+$SIG{'INT'} = \&terminate;
+$SIG{'TERM'} = \&terminate;
+$SIG{'KILL'} = sub { exit(0); };
+
+# This solution should be bad enough to be fixed immediately
+# when feasible.
+
+while(<HANDLE>) {
+    unless ($_ =~ m/\sdir out\s/) {
+        next;
+    }
+    syslog("info", $_);
+    my $dstnet = '';
+    my $mark = 0;
+    my $srchost = '';
+    my $iface = '';
+    my $vti = '';
+    my $vtidisabled = 0;
+    if ($_ =~ m/\sdst (\S+\/\d+)\s/) {
+        $dstnet = $1;
+    }
+    if ($_ =~ m/\smark (0x[^\/\s]+)\/0xffffffff/) {
+        $mark = hex($1);
+    }
+    if ($_ =~ m/\stmpl src ([^\/\s]+)\s/) {
+        $srchost = $1;
+    }
+    $iface = `ip addr show to $srchost 2> /dev/null | head -1 | cut -d: -f2`;
+    $iface =~ s/^\s+//;
+    $iface =~ s/\s+$//;
+    if ($iface ne '' and not -d "/sys/class/net/$iface") {
+        syslog("info", "\$iface = $iface invalid");
+        next;
+    }
+    if ($dstnet =~ /^(0\.0\.0\.0|::)\/0$/ and $mark != 0) {
+        open(IPT, "ip tunnel |");
+        foreach my $l (<IPT>) {
+            if ($l =~ m/^(vti\d+).+key\s$mark\s/) {
+                $vti = $1;
+            }
+        }
+        close(IPT);
+    }
+    if ($vti ne '') {
+        $vtidisabled = $config->existsOrig("interfaces vti $vti disable");
+        syslog("info", "\$vtidisabled = $vtidisabled");
+    }
+    my $cmd = '';
+    if ($_ =~ m/^src /) {
+        # Up
+        if ($vti ne '') {
+            # VTI
+            if (!defined($vtidisabled) || !$vtidisabled) {
+                $cmd = "ip link set up dev $vti";
+            }
+        } else {
+            # Policy-based
+            $cmd = "ip route replace $dstnet dev $iface src $srchost table 220";
+        }
+    }
+    if ($_ =~ m/^Deleted src /) {
+        # Down
+        if ($vti ne '') {
+            # VTI
+            $cmd = "ip link set down dev $vti";
+        } else {
+            # Policy-based
+            $cmd = "ip route del $dstnet table 220";
+        }
+    }
+    if ($cmd ne '') {
+        syslog("info", $cmd);
+        system($cmd);
+    }
+}

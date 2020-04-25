@@ -7,13 +7,17 @@ logrotatedir     = /etc/logrotate.d
 curverdir = $(sysconfdir)/config-migrate/current
 bin_sudo_usersdir = $(bindir)/sudo-users
 
+initd_SCRIPTS =
 sbin_SCRIPTS =
+
+initd_SCRIPTS += etc/init.d/vyos-xfrmwatchd
 
 sbin_SCRIPTS += scripts/vpn-config.pl
 sbin_SCRIPTS += scripts/dmvpn-config.pl
 sbin_SCRIPTS += scripts/vyatta-vpn-ppp-updown.pl
 sbin_SCRIPTS += scripts/is_valid_address.pl
 sbin_SCRIPTS += scripts/vyatta-vti-config.pl
+sbin_SCRIPTS += scripts/vyos-xfrmwatchd
 
 bin_sudo_users_SCRIPTS = scripts/vyatta-ipsec-dhcp.pl
 share_perl5_DATA = lib/Vyatta/VPN/Util.pm
@@ -36,4 +40,3 @@ install-exec-hook:
 	cp scripts/vpn-ppp-up $(DESTDIR)/etc/ppp/ip-up.d/
 	cp scripts/vpn-ppp-down $(DESTDIR)/etc/ppp/ip-down.d/
 	cp scripts/ipsecd-dhclient-hook $(DESTDIR)/etc/dhcp3/dhclient-exit-hooks.d/ipsecd
-	cp scripts/vti-up-down $(DESTDIR)/usr/lib/ipsec/

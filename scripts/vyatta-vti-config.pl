@@ -35,6 +35,7 @@ use strict;
 use lib "/opt/vyatta/share/perl5";
 
 use Getopt::Long;
+use Vyatta::VPN::Util;
 use Vyatta::VPN::vtiIntf;
 use Vyatta::Config;
 use Vyatta::Misc;
@@ -201,7 +202,7 @@ foreach my $peer (@peers) {
     # By default we delete the tunnel...
     my $genmark = $mark;
     $gencmds .= "sudo /sbin/ip link delete $tunName type vti &> /dev/null\n";
-    $gencmds .= "sudo /sbin/ip link add $tunName type vti local $lip remote $peer okey $genmark\n";
+    $gencmds .= "sudo /sbin/ip link add $tunName type vti local $lip remote $peer key $genmark\n";
     foreach my $tunIP (@tunIPs) {
         $gencmds .= "sudo /sbin/ip addr add $tunIP dev $tunName\n";
     }
@@ -228,10 +229,20 @@ sub vti_handle_updown {
     if (!defined($disabled) || !$disabled) {
         my $vtiInterface = new Vyatta::Interface($intfName);
         my $state = $vtiInterface->up();
-        if (!($state && ($action eq "up"))) {
+        if (!($state && ($action eq "up") && xfrm_installed({'mark' => get_mark($intfName)}))) {
             system("sudo /sbin/ip link set $intfName $action\n");
         }
     }
+}
+
+sub get_mark {
+    my ($ifname) = @_;
+    my $ipout = `/sbin/ip tunnel show $ifname`;
+    if ($ipout =~ m/ key (\d+)/) {
+        my $mark = $1;
+        return $mark;
+    }
+    return;
 }
 
 sub vti_check_reference {

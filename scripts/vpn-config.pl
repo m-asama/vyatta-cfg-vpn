@@ -217,59 +217,59 @@ if ($vcVPN->exists('ipsec')) {
     $genout .= "version 2.0\n";
     $genout .= "\n";
     $genout .= "config setup\n";
-    $genout .= "\tcharonstart=yes\n";
+    #$genout .= "\tcharonstart=yes\n";
 
     #
     # Interfaces
     #
     my @interfaces = $vcVPN->returnValues('ipsec ipsec-interfaces interface');
-    if (@interfaces == 0) {
-        #*THIS CHECK'S ALSO USED BY OP-MODE CMNDS TO CHECK IF IPSEC IS CONFIGURED*#
-        vpn_die(["vpn", "ipsec","ipsec-interfaces"],"$vpn_cfg_err No IPSEC interfaces specified.\n");
-    } else {
-        # We need to generate an "interfaces=..." entry in the setup section
-        # only if the underlying IPsec kernel code we are using is KLIPS.
-        # If we are using NETKEY, the "interfaces=..." entry is essentially
-        # not used, though we do need to include the line and the keyword
-        # "%none" to keep the IPsec setup code from defaulting the entry.
-        if ($using_klips) {
-            $genout .= "\tinterfaces=\"";
-            my $counter = 0;
-            foreach my $interface (@interfaces) {
-                if (!(-d "/sys/class/net/$interface")) {
-                    next;
-                }
-                if ($counter > 0) {
-                    $genout .= ' ';
-                }
-                $genout .= "ipsec$counter=$interface";
-                ++$counter;
-            }
-            if (hasLocalWildcard($vcVPN, 0)) {
-                if ($counter > 0) {
-                    $genout .= ' ';
-                }
-                $genout .= '%defaultroute';
-            }
-            $genout .= "\"\n";
-        } else {
-            my $counter = 0;
-            $genout .= "\t";
-            if (hasLocalWildcard($vcVPN, 0)) {
-                $genout .= 'interfaces="';
-                foreach my $interface (@interfaces) {
-                    next if !-d "/sys/class/net/$interface";
-                    next if scalar(getIP($interface)) < 1;
-                    $genout .= "ipsec$counter=$interface ";
-                    ++$counter;
-                }
-                $genout .= '%defaultroute"';
-            } else {
-                $genout .= 'interfaces="%none"';
-            }
-            $genout .= "\n";
-        }
-    }
+#    if (@interfaces == 0) {
+#        #*THIS CHECK'S ALSO USED BY OP-MODE CMNDS TO CHECK IF IPSEC IS CONFIGURED*#
+#        vpn_die(["vpn", "ipsec","ipsec-interfaces"],"$vpn_cfg_err No IPSEC interfaces specified.\n");
+#    } else {
+#        # We need to generate an "interfaces=..." entry in the setup section
+#        # only if the underlying IPsec kernel code we are using is KLIPS.
+#        # If we are using NETKEY, the "interfaces=..." entry is essentially
+#        # not used, though we do need to include the line and the keyword
+#        # "%none" to keep the IPsec setup code from defaulting the entry.
+#        if ($using_klips) {
+#            $genout .= "\tinterfaces=\"";
+#            my $counter = 0;
+#            foreach my $interface (@interfaces) {
+#                if (!(-d "/sys/class/net/$interface")) {
+#                    next;
+#                }
+#                if ($counter > 0) {
+#                    $genout .= ' ';
+#                }
+#                $genout .= "ipsec$counter=$interface";
+#                ++$counter;
+#            }
+#            if (hasLocalWildcard($vcVPN, 0)) {
+#                if ($counter > 0) {
+#                    $genout .= ' ';
+#                }
+#                $genout .= '%defaultroute';
+#            }
+#            $genout .= "\"\n";
+#        } else {
+#            my $counter = 0;
+#            $genout .= "\t";
+#            if (hasLocalWildcard($vcVPN, 0)) {
+#                $genout .= 'interfaces="';
+#                foreach my $interface (@interfaces) {
+#                    next if !-d "/sys/class/net/$interface";
+#                    next if scalar(getIP($interface)) < 1;
+#                    $genout .= "ipsec$counter=$interface ";
+#                    ++$counter;
+#                }
+#                $genout .= '%defaultroute"';
+#            } else {
+#                $genout .= 'interfaces="%none"';
+#            }
+#            $genout .= "\n";
+#        }
+#    }
 
     #
     # NAT traversal
@@ -526,7 +526,8 @@ if ($vcVPN->exists('ipsec')) {
                     # no need for leftsourceip as a defaultroute is must for this to work
                 } else {
                     $genout .= "\tleft=$lip\n";
-                    $leftsourceip = "\tleftsourceip=$lip\n";
+                    # https://lists.strongswan.org/pipermail/users/2012-September/003675.html
+                    #$leftsourceip = "\tleftsourceip=$lip\n";
                 }
                 $genout .= "\tleftid=\"$authid\"\n" if defined $authid;
             }
@@ -586,7 +587,8 @@ if ($vcVPN->exists('ipsec')) {
                         my $systemip_object = new NetAddr::IP($system_ip);
                         if (CheckIfAddressInsideNetwork($systemip_object, $localsubnet_object)){
                             my $sourceip = $systemip_object->addr();
-                            $leftsourceip = "\tleftsourceip=$sourceip\n";
+                            # https://lists.strongswan.org/pipermail/users/2012-September/003675.html
+                            #$leftsourceip = "\tleftsourceip=$sourceip\n";
                         }
                     }
                 }
@@ -887,6 +889,81 @@ if ($vcVPN->exists('ipsec')) {
                 $esp_group = $vcVPN->returnValue("ipsec site-to-site peer $peer default-esp-group");
             }
             if (defined($esp_group) && $esp_group ne '') {
+                #
+                # Perfect Forward Secrecy
+                #
+                my $pfsgroup;
+                my $pfs = $vcVPN->returnValue("ipsec esp-group $esp_group pfs");
+                if (defined($pfs)) {
+                    if ($pfs eq 'enable') {
+                        #$genout .= "\tpfs=yes\n";
+                        $pfsgroup = "-modp1024";
+                    } elsif ($pfs eq 'dh-group2') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp1024\n";
+                        $pfsgroup = "-modp1024";
+                    } elsif ($pfs eq 'dh-group5') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp1536\n";
+                        $pfsgroup = "-modp1536";
+                    } elsif ($pfs eq 'dh-group14') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp2048\n";
+                        $pfsgroup = "-modp2048";
+                    } elsif ($pfs eq 'dh-group15') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp3072\n";
+                        $pfsgroup = "-modp3072";
+                    } elsif ($pfs eq 'dh-group16') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp4096\n";
+                        $pfsgroup = "-modp4096";
+                    } elsif ($pfs eq 'dh-group17') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp6144\n";
+                        $pfsgroup = "-modp6144";
+                    } elsif ($pfs eq 'dh-group18') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp8192\n";
+                        $pfsgroup = "-modp8192";
+                    } elsif ($pfs eq 'dh-group19') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=ecp256\n";
+                        $pfsgroup = "-ecp256";
+                    } elsif ($pfs eq 'dh-group20') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=ecp384\n";
+                        $pfsgroup = "-ecp384";
+                    } elsif ($pfs eq 'dh-group21') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=ecp521\n";
+                        $pfsgroup = "-ecp521";
+                    } elsif ($pfs eq 'dh-group22') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp1024s160\n";
+                        $pfsgroup = "-modp1024s160";
+                    } elsif ($pfs eq 'dh-group23') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp2048s224\n";
+                        $pfsgroup = "-modp2048s224";
+                    } elsif ($pfs eq 'dh-group24') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=modp2048s256\n";
+                        $pfsgroup = "-modp2048s256";
+                    } elsif ($pfs eq 'dh-group25') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=ecp192\n";
+                        $pfsgroup = "-ecp192";
+                    } elsif ($pfs eq 'dh-group26') {
+                        #$genout .= "\tpfs=yes\n";
+                        #$genout .= "\tpfsgroup=ecp224\n";
+                        $pfsgroup = "-ecp224";
+                    } else {
+                        #$genout .= "\tpfs=no\n";
+                        $pfsgroup = "";
+                    }
+                }
+
                 my @esp_proposals =$vcVPN->listNodes("ipsec esp-group $esp_group proposal");
                 my $first_esp_proposal = 1;
                 foreach my $esp_proposal (@esp_proposals) {
@@ -910,7 +987,7 @@ if ($vcVPN->exists('ipsec')) {
                     # Write values
                     #
                     if (defined($encryption) && defined($hash)) {
-                        $genout .= "$encryption-$hash";
+                        $genout .= "$encryption-$hash$pfsgroup";
                     }
                 }
                 $genout .= "!\n";
@@ -953,63 +1030,6 @@ if ($vcVPN->exists('ipsec')) {
                     }
                 }
                 $genout .= "\ttype=$espmode\n";
-
-                #
-                # Perfect Forward Secrecy
-                #
-                my $pfs = $vcVPN->returnValue("ipsec esp-group $esp_group pfs");
-                if (defined($pfs)) {
-                    if ($pfs eq 'enable') {
-                        $genout .= "\tpfs=yes\n";
-                    } elsif ($pfs eq 'dh-group2') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp1024\n";
-                    } elsif ($pfs eq 'dh-group5') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp1536\n";
-                    } elsif ($pfs eq 'dh-group14') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp2048\n";
-                    } elsif ($pfs eq 'dh-group15') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp3072\n";
-                    } elsif ($pfs eq 'dh-group16') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp4096\n";
-                    } elsif ($pfs eq 'dh-group17') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp6144\n";
-                    } elsif ($pfs eq 'dh-group18') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp8192\n";
-                    } elsif ($pfs eq 'dh-group19') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=ecp256\n";
-                    } elsif ($pfs eq 'dh-group20') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=ecp384\n";
-                    } elsif ($pfs eq 'dh-group21') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=ecp521\n";
-                    } elsif ($pfs eq 'dh-group22') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp1024s160\n";
-                    } elsif ($pfs eq 'dh-group23') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp2048s224\n";
-                    } elsif ($pfs eq 'dh-group24') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=modp2048s256\n";
-                    } elsif ($pfs eq 'dh-group25') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=ecp192\n";
-                    } elsif ($pfs eq 'dh-group26') {
-                        $genout .= "\tpfs=yes\n";
-                        $genout .= "\tpfsgroup=ecp224\n";
-                    } else {
-                        $genout .= "\tpfs=no\n";
-                    }
-                }
 
                 #
                 # Compression
@@ -1166,7 +1186,7 @@ if ($vcVPN->exists('ipsec')) {
                 if (!defined($tunName)) {
                     vpn_die(["vpn","ipsec","site-to-site","peer",$peer,"vti","bind"],"$vpn_cfg_err No interface bind specified for peer \"$peer\" vti\n");
                 }
-                $genout .= "\tleftupdown=\"/usr/lib/ipsec/vti-up-down $tunName\"\n";
+                #$genout .= "\tleftupdown=\"/usr/lib/ipsec/vti-up-down $tunName\"\n";
             }
 
             #
