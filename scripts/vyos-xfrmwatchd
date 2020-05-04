@@ -153,6 +153,10 @@ while(<HANDLE>) {
             }
         }
         close(IPT);
+        if ($vti eq '') {
+            syslog("info", "\$dstnet = $dstnet and \$mark = $mark invalid");
+            next;
+        }
     }
     if ($vti ne '') {
         $vtidisabled = $config->existsOrig("interfaces vti $vti disable");

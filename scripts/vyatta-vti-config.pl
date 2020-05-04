@@ -35,7 +35,6 @@ use strict;
 use lib "/opt/vyatta/share/perl5";
 
 use Getopt::Long;
-use Vyatta::VPN::Util;
 use Vyatta::VPN::vtiIntf;
 use Vyatta::Config;
 use Vyatta::Misc;
@@ -43,33 +42,15 @@ use Vyatta::Misc;
 my $vti_cfg_err = "VPN VTI configuration error:";
 my $gencmds = "";
 my $result = 0;
-my $updown="";
 my $intfName="";
 my $action="";
 my $checkref="";
 
 GetOptions(
-    "updown" => \$updown,
     "intf=s"   => \$intfName,
     "action=s" => \$action,
     "checkref" => \$checkref,
 );
-
-#
-# --updown intfName --action=[up|down]
-#
-if ($updown ne '') {
-    if (!(defined $intfName) || $intfName eq '') {
-        # invalid
-        exit -1;
-    }
-    if (!(defined $action) || $action eq '') {
-        # invalid
-        exit -1;
-    }
-    vti_handle_updown($intfName, $action);
-    exit 0;
-}
 
 #
 # --checkref --intf=<intfName>
@@ -217,33 +198,6 @@ cleanupVtiNotConfigured();
 checkUnrefIntfVti($vcIntf, %vtiVpns);
 $result = execGenCmds();
 exit $result;
-
-#
-# Handle VTI tunnel state based on input from strongswan and configuration.
-#
-sub vti_handle_updown {
-    my ($intfName, $action) = @_;
-    my $vcIntf = new Vyatta::Config();
-    $vcIntf->setLevel('interfaces');
-    my $disabled = $vcIntf->existsOrig("vti $intfName disabled");
-    if (!defined($disabled) || !$disabled) {
-        my $vtiInterface = new Vyatta::Interface($intfName);
-        my $state = $vtiInterface->up();
-        if (!($state && ($action eq "up") && xfrm_installed({'mark' => get_mark($intfName)}))) {
-            system("sudo /sbin/ip link set $intfName $action\n");
-        }
-    }
-}
-
-sub get_mark {
-    my ($ifname) = @_;
-    my $ipout = `/sbin/ip tunnel show $ifname`;
-    if ($ipout =~ m/ key (\d+)/) {
-        my $mark = $1;
-        return $mark;
-    }
-    return;
-}
 
 sub vti_check_reference {
     my ($intfName) = @_;

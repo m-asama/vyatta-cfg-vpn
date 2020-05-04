@@ -27,8 +27,7 @@ use strict;
 use warnings;
 
 our @EXPORT = qw(rsa_get_local_key_file LOCAL_KEY_FILE_DEFAULT rsa_get_local_pubkey
-                 is_vpn_running vpn_debug enableICMP is_tcp_udp get_protocols conv_protocol
-                 xfrm_installed);
+                 is_vpn_running vpn_debug enableICMP is_tcp_udp get_protocols conv_protocol);
 use base qw(Exporter);
 
 use Vyatta::Config;
@@ -171,54 +170,6 @@ sub enableICMP {
 	close $out;
     }
     return 1;
-}
-
-sub xfrm_match {
-    my ($pol, $cond) = @_;
-    if ($pol !~ m/\sdir out\s/) {
-        return 0;
-    }
-    if (defined($cond->{'dst'}) && $cond->{'dst'} ne '') {
-        my $dst = $cond->{'dst'};
-        if ($pol !~ m/\sdst\s$dst\s/) {
-            return 0;
-        }
-    }
-    if (defined($cond->{'mark'}) && $cond->{'mark'} ne '') {
-        my $mark = $cond->{'mark'};
-        if ($pol !~ m/\smark\s(0x[^\/]+)\/0xffffffff/) {
-            return 0;
-        }
-        if (hex($1) != $mark) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-sub xfrm_installed {
-    my ($cond) = @_;
-
-    open(POLICY, "ip xfrm policy |");
-    my @policy = <POLICY>;
-    close(POLICY);
-
-    my $pol = '';
-    foreach my $line (@policy) {
-        chomp($line);
-        if ($line !~ m/^\s/) {
-            if (xfrm_match($pol, $cond)) {
-                return 1;
-            }
-            $pol = '';
-        }
-        $pol .= $line;
-    }
-    if (xfrm_match($pol, $cond)) {
-        return 1;
-    }
-
-    return 0;
 }
 
 1;
