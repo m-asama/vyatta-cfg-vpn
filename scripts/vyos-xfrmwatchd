@@ -25,6 +25,7 @@ use Sys::Syslog;
 use Vyatta::Config;
 use Vyatta::Interface;
 use Data::Dumper;
+use Net::IP;
 
 use constant
 {
@@ -118,25 +119,38 @@ $SIG{'KILL'} = sub { exit(0); };
 # This solution should be bad enough to be fixed immediately
 # when feasible.
 
+
+# src 0.0.0.0/0 dst 0.0.0.0/0 dir out priority 399999 mark 0x900001/0xffffffff tmpl src 172.16.2.1 dst 172.16.1.1 proto esp spi 0xce80c2a7 reqid 4 mode tunnel
+# src 192.168.11.0/24 dst 192.168.1.0/24 dir out priority 375423 tmpl src 172.16.2.1 dst 172.16.1.1 proto esp spi 0xc757f2a7 reqid 1 mode tunnel
+
+my %routeinstalled;
 while(<HANDLE>) {
+    $_ =~ s/\\/ /g;
+    $_ =~ s/\s+/ /g;
     unless ($_ =~ m/\sdir out\s/) {
         next;
     }
     syslog("info", $_);
+    my $srcnet = '';
     my $dstnet = '';
     my $mark = 0;
     my $srchost = '';
     my $iface = '';
     my $vti = '';
     my $vtidisabled = 0;
-    if ($_ =~ m/\sdst (\S+\/\d+)\s/) {
-        $dstnet = $1;
+    my $srcstr = '';
+    if ($_ =~ m/src (\S+\/\d+)\sdst (\S+\/\d+)\sdir/) {
+        $srcnet = $1;
+        $dstnet = $2;
+        syslog("info", "\$srcnet = $srcnet \$dstnet = $dstnet");
     }
     if ($_ =~ m/\smark (0x[^\/\s]+)\/0xffffffff/) {
         $mark = hex($1);
+        syslog("info", "\$mark = $mark");
     }
     if ($_ =~ m/\stmpl src ([^\/\s]+)\s/) {
         $srchost = $1;
+        syslog("info", "\$srchost = $srchost");
     }
     $iface = `ip addr show to $srchost 2> /dev/null | head -1 | cut -d: -f2`;
     $iface =~ s/^\s+//;
@@ -157,10 +171,38 @@ while(<HANDLE>) {
             syslog("info", "\$dstnet = $dstnet and \$mark = $mark invalid");
             next;
         }
+        syslog("info", "\$vti = $vti");
     }
     if ($vti ne '') {
         $vtidisabled = $config->existsOrig("interfaces vti $vti disable");
         syslog("info", "\$vtidisabled = $vtidisabled");
+    }
+    my $srcnetobj = new Net::IP ($srcnet);
+    if (not defined $srcnetobj) {
+        syslog("info", "\$srcnetobj = $srcnetobj cannot get Net::IP obj");
+        next;
+    }
+    my $srcnetver = $srcnetobj->version();
+    my @ipouts = `ip -oneline -$srcnetver addr show`;
+    foreach my $ipout (@ipouts) {
+        $ipout =~ s/\\/ /g;
+        $ipout =~ s/\s+/ /g;
+        if ($ipout =~ m/\d+: $iface /) {
+            next;
+        }
+        unless ($ipout =~ m/ inet(6)? (\S+)\//) {
+            next;
+        }
+        my $srcip = $2;
+        my $ipobj = new Net::IP ($srcip);
+        if (not defined $ipobj) {
+            syslog("info", "\$srcip = $srcip cannot get Net::IP obj");
+            next;
+        }
+        if ($srcnetobj->overlaps($ipobj) != 0) {
+            $srcstr = "src $srcip";
+            last;
+        }
     }
     my $cmd = '';
     if ($_ =~ m/^src /) {
@@ -172,7 +214,10 @@ while(<HANDLE>) {
             }
         } else {
             # Policy-based
-            $cmd = "ip route replace $dstnet dev $iface src $srchost table 220";
+            if ($routeinstalled{$dstnet} == 0 or $srcstr ne '') {
+                $cmd = "ip route replace $dstnet dev $iface $srcstr table 220";
+            }
+            $routeinstalled{$dstnet}++;
         }
     }
     if ($_ =~ m/^Deleted src /) {
@@ -182,7 +227,12 @@ while(<HANDLE>) {
             $cmd = "ip link set down dev $vti";
         } else {
             # Policy-based
-            $cmd = "ip route del $dstnet table 220";
+            if ($routeinstalled{$dstnet} > 0) {
+                $routeinstalled{$dstnet}--;
+            }
+            if ($routeinstalled{$dstnet} == 0) {
+                $cmd = "ip route del $dstnet table 220";
+            }
         }
     }
     if ($cmd ne '') {
