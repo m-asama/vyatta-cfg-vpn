@@ -152,9 +152,17 @@ while(<HANDLE>) {
         $srchost = $1;
         syslog("info", "\$srchost = $srchost");
     }
-    $iface = `ip addr show to $srchost 2> /dev/null | head -1 | cut -d: -f2`;
-    $iface =~ s/^\s+//;
-    $iface =~ s/\s+$//;
+    if ($srchost ne '') {
+        # tunnel
+        $iface = `ip addr show to $srchost 2> /dev/null | head -1 | cut -d: -f2`;
+        $iface =~ s/^\s+//;
+        $iface =~ s/\s+$//;
+    } else {
+        # passthrough
+        $iface = `ip addr show to $dstnet 2> /dev/null | head -1 | cut -d: -f2`;
+        $iface =~ s/^\s+//;
+        $iface =~ s/\s+$//;
+    }
     if ($iface ne '' and not -d "/sys/class/net/$iface") {
         syslog("info", "\$iface = $iface invalid");
         next;
@@ -187,7 +195,7 @@ while(<HANDLE>) {
     foreach my $ipout (@ipouts) {
         $ipout =~ s/\\/ /g;
         $ipout =~ s/\s+/ /g;
-        if ($ipout =~ m/\d+: $iface /) {
+        if ($iface ne '' and $ipout =~ m/\d+: $iface /) {
             next;
         }
         unless ($ipout =~ m/ inet(6)? (\S+)\//) {
