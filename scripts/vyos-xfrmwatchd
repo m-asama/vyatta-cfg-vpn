@@ -163,6 +163,10 @@ while(<HANDLE>) {
         $iface =~ s/^\s+//;
         $iface =~ s/\s+$//;
     }
+    if ($iface =~ m/\@.*$/) {
+        # dsa
+        $iface =~ s/\@.*$//;
+    }
     if ($iface ne '' and not -d "/sys/class/net/$iface") {
         syslog("info", "\$iface = $iface invalid");
         next;
