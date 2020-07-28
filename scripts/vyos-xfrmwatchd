@@ -224,7 +224,7 @@ while(<HANDLE>) {
             if (!defined($vtidisabled) || !$vtidisabled) {
                 $cmd = "ip link set up dev $vti";
             }
-        } else {
+        } elsif ($mark == 0) {
             # Policy-based
             if ($routeinstalled{$dstnet} == 0 or $srcstr ne '') {
                 $cmd = "ip route replace $dstnet dev $iface $srcstr table 220";
@@ -237,7 +237,7 @@ while(<HANDLE>) {
         if ($vti ne '') {
             # VTI
             $cmd = "ip link set down dev $vti";
-        } else {
+        } elsif ($mark == 0) {
             # Policy-based
             if ($routeinstalled{$dstnet} > 0) {
                 $routeinstalled{$dstnet}--;

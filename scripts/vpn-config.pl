@@ -491,8 +491,17 @@ if ($vcVPN->exists('ipsec')) {
                          "for peer \"$peer\" $tunKeyword has not been configured.\n");
             }
 
-            my $conn_head = "\nconn peer-$peer-tunnel-$tunnel\n";
-            $conn_head =~ s/ peer-@/ peer-/;
+            my $ikever = 'ikev1';
+            my $peer_tunnel_ike_group =$vcVPN->returnValue("ipsec site-to-site peer $peer ike-group");
+            if (defined($peer_tunnel_ike_group) && $peer_tunnel_ike_group ne '') {
+                my $key_exchange = $vcVPN->returnValue("ipsec ike-group $peer_tunnel_ike_group key-exchange");
+                if (defined($key_exchange) && $key_exchange eq 'ikev2') {
+                    $ikever = 'ikev2';
+                }
+            }
+
+            my $conn_head = "\nconn $ikever-peer-$peer-tunnel-$tunnel\n";
+            $conn_head =~ s/ $ikever-peer-@/ $ikever-peer-/;
             $genout .= $conn_head;
 
             # Support for dhcp-interfaces
@@ -1310,6 +1319,7 @@ if (   $vcVPN->isDeleted('.')
             }else {
                 vpn_exec('ipsec rereadall >&/dev/null', 're-read secrets and certs');
                 vpn_exec('ipsec update >&/dev/null', 'update changes to ipsec.conf');
+                clean_old_conn();
             }
         } else {
             if (!defined($update_interval)) {
@@ -1325,6 +1335,32 @@ if (   $vcVPN->isDeleted('.')
 # Return success
 #
 exit 0;
+
+sub clean_old_conn {
+    my %conns = ();
+    my %dels = ();
+    open(CONF, "/etc/ipsec.conf");
+    foreach my $l (<CONF>) {
+        if ($l =~ m/^conn (ikev.+-peer-.+-tunnel-.+)$/) {
+            my $conn = $1;
+            $conns{$conn} = 1;
+        }
+    }
+    close(CONF);
+    open(STATUS, "ipsec statusall |");
+    foreach my $l (<STATUS>) {
+        if ($l =~ m/^(ikev.+-peer-.+-tunnel-.+)[\[\{]\d+[\]\}]:/) {
+            my $conn = $1;
+            if (!defined($conns{$conn})) {
+		$dels{$conn} = 1;
+            }
+        }
+    }
+    close(STATUS);
+    foreach my $conn (keys %dels) {
+        vpn_exec('ipsec down '.$conn.' >&/dev/null', 'clear old connection');
+    }
+}
 
 sub vpn_die {
     my (@path,$msg) = @_;

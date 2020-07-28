@@ -37,7 +37,7 @@ foreach my $line (<$FD>){
     $curconn = '';
     next;
   }
-  if ($line =~ /(peer-.*-tunnel.*)/){
+  if ($line =~ /(ikev\d-peer-.*-tunnel.*)/){
     $finheader = 1;
     my $connid = $1;
     $curconn = $connid;
