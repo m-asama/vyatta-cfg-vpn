@@ -1284,6 +1284,15 @@ if (   $vcVPN->isDeleted('.')
     }
     if (is_vpn_running()) {
         vpn_exec('ipsec stop >&/dev/null', 'stop ipsec');
+        my $count = 0;
+        while (is_vpn_running()) {
+            if ($count > 5) {
+                print "Timeout ipsec start\n";
+                last;
+            }
+            sleep(1);
+            $count++;
+        }
     }
     if (!enableICMP('1')) {
         vpn_die(["vpn","ipsec"],"VPN commit error.  Unable to re-enable ICMP redirects.\n");
@@ -1326,6 +1335,15 @@ if (   $vcVPN->isDeleted('.')
                 vpn_exec('ipsec start >&/dev/null', 'start ipsec');
             } else {
                 vpn_exec('ipsec start --auto-update '.$update_interval.' >&/dev/null','start ipsec with auto-update $update_interval');
+            }
+            my $count = 0;
+            while (!is_vpn_running()) {
+                if ($count > 5) {
+                    print "Timeout ipsec start\n";
+                    last;
+                }
+                sleep(1);
+                $count++;
             }
         }
     }

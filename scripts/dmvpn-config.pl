@@ -598,6 +598,15 @@ else {
             'ipsec start --auto-update ' . $update_interval . ' >&/dev/null',
             'start ipsec with auto-update $update_interval' );
     }
+    my $count = 0;
+    while ( !is_vpn_running() ) {
+        if ( $count > 5 ) {
+            print "Timeout ipsec start\n";
+            last;
+        }
+        sleep(1);
+        $count++;
+    }
 }
 
 #
