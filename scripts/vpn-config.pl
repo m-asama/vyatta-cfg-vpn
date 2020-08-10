@@ -1287,7 +1287,7 @@ if (   $vcVPN->isDeleted('.')
         my $count = 0;
         while (is_vpn_running()) {
             if ($count > 5) {
-                print "Timeout ipsec start\n";
+                print "Timeout ipsec stop\n";
                 last;
             }
             sleep(1);
