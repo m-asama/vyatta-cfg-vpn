@@ -1,0 +1,55 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use Fcntl qw/:DEFAULT :flock/;
+use Sys::Syslog;
+
+my $lock = '/var/run/vyos-reinitiatedeadconn.lock';
+
+syslog("info", "%s", "vyos-reinitiatedeadconn begin");
+
+sysopen(LOCK, $lock, O_RDWR | O_CREAT) or die "Cannot open $lock: $!";
+
+flock(LOCK, LOCK_EX) or die "Cannot lock $lock: $!";
+
+sleep 5;
+
+open(IPSECCONF, '/etc/ipsec.conf');
+my $conn = '';
+my $auto = '';
+foreach my $ipsecconf (<IPSECCONF>) {
+	if ($ipsecconf =~ m/^conn\s+(\S+)/) {
+		$conn = $1;
+		$auto = '';
+	}
+	if ($ipsecconf =~ m/^\s+auto=(\S+)/) {
+		$auto = $1;
+	}
+	if ($ipsecconf =~ m/^#conn\s+(\S+)/) {
+		if ($1 eq $conn and $auto eq 'start') {
+			syslog("info", "%s", "checking $conn status begin");
+			open(SWANCTLLISTSAS, "swanctl --list-sas --ike $conn |");
+			my @swanctllistsas = <SWANCTLLISTSAS>;
+			close(SWANCTLLISTSAS);
+			if (@swanctllistsas == 0) {
+				syslog("info", "%s", "reinitiate $conn");
+				sleep 1;
+				open(SWANCTLINITIATE, "swanctl --initiate --timeout 1 --ike $conn |");
+				my @swanctlinitiate = <SWANCTLINITIATE>;
+				close(SWANCTLINITIATE);
+				sleep 1;
+			}
+			syslog("info", "%s", "checking $conn status end");
+		}
+		$conn = '';
+		$auto = '';
+	}
+}
+close(IPSECCONF);
+
+close LOCK or die "Cannot close $lock: $!";
+
+syslog("info", "%s", "vyos-reinitiatedeadconn end");
+
+exit 0;

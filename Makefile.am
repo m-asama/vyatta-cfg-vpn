@@ -18,6 +18,7 @@ sbin_SCRIPTS += scripts/vyatta-vpn-ppp-updown.pl
 sbin_SCRIPTS += scripts/is_valid_address.pl
 sbin_SCRIPTS += scripts/vyatta-vti-config.pl
 sbin_SCRIPTS += scripts/vyos-xfrmwatchd
+sbin_SCRIPTS += scripts/vyos-reinitiatedeadconn
 
 bin_sudo_users_SCRIPTS = scripts/vyatta-ipsec-dhcp.pl
 share_perl5_DATA = lib/Vyatta/VPN/Util.pm

@@ -246,6 +246,8 @@ while(<HANDLE>) {
                 $cmd = "ip route del $dstnet table 220";
             }
         }
+        # re-initiate daed connections
+        system("/opt/vyatta/sbin/vyos-reinitiatedeadconn &");
     }
     if ($cmd ne '') {
         syslog("info", $cmd);
