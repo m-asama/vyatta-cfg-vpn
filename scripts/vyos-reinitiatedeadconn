@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Fcntl qw/:DEFAULT :flock/;
 use Sys::Syslog;
+use Time::HiRes;
 
 my $lock = '/var/run/vyos-reinitiatedeadconn.lock';
 
@@ -13,7 +14,7 @@ sysopen(LOCK, $lock, O_RDWR | O_CREAT) or die "Cannot open $lock: $!";
 
 flock(LOCK, LOCK_EX) or die "Cannot lock $lock: $!";
 
-sleep 5;
+Time::HiRes::sleep(1.0 + rand(4));
 
 open(IPSECCONF, '/etc/ipsec.conf');
 my $conn = '';
@@ -32,13 +33,26 @@ foreach my $ipsecconf (<IPSECCONF>) {
 			open(SWANCTLLISTSAS, "swanctl --list-sas --ike $conn |");
 			my @swanctllistsas = <SWANCTLLISTSAS>;
 			close(SWANCTLLISTSAS);
-			if (@swanctllistsas == 0) {
-				syslog("info", "%s", "reinitiate $conn");
-				sleep 1;
+			Time::HiRes::sleep(0.1);
+			my $established = 0;
+			my $installed = 0;
+			foreach my $swanctllistsas (@swanctllistsas) {
+				$established++ if $swanctllistsas =~ m/ESTABLISHED/;
+				$installed++ if $swanctllistsas =~ m/INSTALLED/;
+			}
+			if ($established == 0) {
+				syslog("info", "%s", "reinitiate ike $conn");
 				open(SWANCTLINITIATE, "swanctl --initiate --timeout 1 --ike $conn |");
 				my @swanctlinitiate = <SWANCTLINITIATE>;
 				close(SWANCTLINITIATE);
-				sleep 1;
+				Time::HiRes::sleep(0.1);
+			}
+			if ($installed == 0) {
+				syslog("info", "%s", "reinitiate child $conn");
+				open(SWANCTLINITIATE, "swanctl --initiate --timeout 1 --child $conn |");
+				my @swanctlinitiate = <SWANCTLINITIATE>;
+				close(SWANCTLINITIATE);
+				Time::HiRes::sleep(0.1);
 			}
 			syslog("info", "%s", "checking $conn status end");
 		}
